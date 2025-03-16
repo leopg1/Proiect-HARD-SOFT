@@ -192,8 +192,33 @@ def api_login():
 
     if tag:
         session["logged_in"] = True
-        # Trimite un eveniment WebSocket către client
+
+        # ✅ Salvăm în istoricul scanărilor și tag-urile de login
+        history_entry = RFIDHistory.query.filter_by(rfid_code=rfid_code).first()
+        if history_entry:
+            history_entry.scan_count += 1  # ✅ Incrementăm numărul de scanări
+        else:
+            history_entry = RFIDHistory(rfid_code=rfid_code, scan_count=1)
+            db.session.add(history_entry)
+
+        db.session.commit()
+
+        # ✅ Trimitem update către WebSockets pentru dashboard
+        history_entries = RFIDHistory.query.order_by(RFIDHistory.timestamp.desc()).all()
+        history_data = [
+            {
+                "id": entry.id,
+                "rfid_code": entry.rfid_code,
+                "scan_count": entry.scan_count,
+                "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            for entry in history_entries
+        ]
+        socketio.emit("history_update", history_data)
+
+        # ✅ Trimite un eveniment WebSocket pentru redirecționare
         socketio.emit("redirect_to_dashboard", {"redirect": "/dashboard"})
+
         return jsonify({"message": "Autentificare reușită!", "redirect": "/dashboard"}), 200
     else:
         return jsonify({"error": "Tag RFID invalid!"}), 401
@@ -252,4 +277,4 @@ def scan_rfid():
     return jsonify({"error": "Tip RFID necunoscut"}), 400
 
 if __name__ == "__main__":
-    socketio.run(app, debug=True, host="0.0.0.0", port=5000)
+    socketio.run(app, debug=True, host="0.0.0.0", port=5000, allow_unsafe_werkzeug=True)
