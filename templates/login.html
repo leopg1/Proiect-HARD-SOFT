@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login RFID</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.js"></script>
+</head>
+<body>
+    <h2>Scanează RFID</h2>
+    <input type="text" id="rfid_input" placeholder="Scanează cardul RFID">
+    <button onclick="submitRFID()">Trimite</button>
+    <p id="status"></p>
+
+    <script>
+        var socket = io.connect("http://localhost:5000");
+
+        function submitRFID() {
+            var rfid_code = document.getElementById("rfid_input").value;
+            sendRFIDToServer(rfid_code);
+        }
+
+        function sendRFIDToServer(rfid_code) {
+            fetch("/scan_rfid", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({"rfid_code": rfid_code})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.redirect) {
+                    window.location.href = data.redirect;  // Redirect automat dacă este login
+                } else if (data.led_status) {
+                    document.getElementById("status").innerText = "LED activ: " + data.led_status;
+                } else {
+                    document.getElementById("status").innerText = data.error || data.message;
+                }
+            });
+        }
+
+        // WebSocket pentru redirecționare automată
+        socket.on("redirect_to_dashboard", function(data) {
+            window.location.href = data.redirect;
+        });
+
+    </script>
+</body>
+</html>
