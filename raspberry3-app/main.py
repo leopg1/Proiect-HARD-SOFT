@@ -11,7 +11,7 @@ GPIO.setmode(GPIO.BCM)
 GPIO.setup(LED1, GPIO.OUT)
 GPIO.setup(LED2, GPIO.OUT)
 
-# Oprire LED-uri la pornire
+# **Forțăm LED-urile să fie stinse la pornire**
 GPIO.output(LED1, GPIO.LOW)
 GPIO.output(LED2, GPIO.LOW)
 
@@ -32,14 +32,16 @@ def send_rfid_to_server(rfid_code):
         if response.status_code == 200:
             print(f"✅ Răspuns API: {data}")
 
-            # Asigurăm că doar un LED este aprins simultan
-            if data.get("led_status") == "LED1":
+            led_status = data.get("led_status", "none")
+
+            # **Aprinde doar LED-ul corespunzător, stinge celălalt**
+            if led_status == "LED1":
                 GPIO.output(LED1, GPIO.HIGH)
-                GPIO.output(LED2, GPIO.LOW)  # Stingem LED2
+                GPIO.output(LED2, GPIO.LOW)
                 print("💡 LED1 APRINS! (LED2 STINS)")
 
-            elif data.get("led_status") == "LED2":
-                GPIO.output(LED1, GPIO.LOW)  # Stingem LED1
+            elif led_status == "LED2":
+                GPIO.output(LED1, GPIO.LOW)
                 GPIO.output(LED2, GPIO.HIGH)
                 print("💡 LED2 APRINS! (LED1 STINS)")
 
@@ -58,7 +60,10 @@ print("📡 Aștept citiri de la RFID... Apropie un card!")
 
 try:
     while True:
-        # Citește un card RFID
+        # **Forțăm LED-urile să fie stinse înainte de a începe o nouă citire**
+        GPIO.output(LED1, GPIO.LOW)
+        GPIO.output(LED2, GPIO.LOW)
+
         print("\n📌 Scanează un card...")
         rfid_code, _ = reader.read()
         rfid_code = str(rfid_code).strip()  # Convertim la string și eliminăm spațiile
