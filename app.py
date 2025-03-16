@@ -48,7 +48,7 @@ with app.app_context():
 
     # Adăugăm RFID-urile predefinite pentru login și LED-uri
     predefined_tags = [
-        {"rfid_code": "999999", "tag_type": "login"},  # RFID pentru conectare
+        {"rfid_code": "154410945857", "tag_type": "login"},  # RFID pentru conectare
         {"rfid_code": "423423", "tag_type": "led"},  # RFID pentru LED1
         {"rfid_code": "2312345", "tag_type": "led"}  # RFID pentru LED2
     ]
@@ -275,6 +275,22 @@ def scan_rfid():
         return redirect(url_for("receive_rfid"), code=307)  # Trimite același request către /rfid
 
     return jsonify({"error": "Tip RFID necunoscut"}), 400
+
+
+@app.route("/clear_history", methods=["POST"])
+def clear_history():
+    """Șterge istoricul scanărilor RFID"""
+    try:
+        db.session.query(RFIDHistory).delete()  # Șterge toate înregistrările
+        db.session.commit()
+
+        # Trimitem update către WebSockets pentru a actualiza UI-ul
+        socketio.emit("history_update", [])
+
+        return jsonify({"message": "Istoricul a fost șters!"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     socketio.run(app, debug=True, host="0.0.0.0", port=5000, allow_unsafe_werkzeug=True)

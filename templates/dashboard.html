@@ -96,6 +96,9 @@
         </div>
 
         <!-- Istoric RFID -->
+        <div class="text-center mt-3">
+            <button id="clearHistoryBtn" class="btn btn-danger">Șterge Istoricul</button>
+        </div>        
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card shadow">
@@ -154,6 +157,21 @@
             } else {
                 ledStatus.className = "led-status led-gray";
             }
+        });
+
+        document.getElementById("clearHistoryBtn").addEventListener("click", function() {
+        if (confirm("Sigur vrei să ștergi istoricul scanărilor?")) {
+            fetch("/clear_history", {
+                method: "POST"
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message); // Afișează un mesaj că istoricul a fost șters
+                document.getElementById("history_table").innerHTML = ""; // Golește tabelul din UI
+                document.getElementById("last_scan").innerText = "Nicio scanare recentă"; // Resetăm ultima scanare
+            })
+            .catch(error => console.error("Eroare la ștergerea istoricului:", error));
+        }
         });
 
         // Cerem istoric și status LED la încărcarea paginii

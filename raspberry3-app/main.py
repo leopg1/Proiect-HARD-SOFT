@@ -8,12 +8,8 @@ LED1 = 17  # GPIO pentru LED1
 LED2 = 27  # GPIO pentru LED2
 
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(LED1, GPIO.OUT)
-GPIO.setup(LED2, GPIO.OUT)
-
-# **Forțăm LED-urile să fie stinse la pornire**
-GPIO.output(LED1, GPIO.LOW)
-GPIO.output(LED2, GPIO.LOW)
+GPIO.setup(LED1, GPIO.OUT, initial=GPIO.LOW)
+GPIO.setup(LED2, GPIO.OUT, initial=GPIO.LOW)
 
 # Configurare cititor RFID
 reader = SimpleMFRC522()
@@ -26,7 +22,7 @@ def send_rfid_to_server(rfid_code):
     payload = {"rfid_code": rfid_code}
     
     try:
-        response = requests.post(API_URL, json=payload)
+        response = requests.post(API_URL, json=payload, timeout=5)
         data = response.json()
 
         if response.status_code == 200:
@@ -59,22 +55,28 @@ def send_rfid_to_server(rfid_code):
 print("📡 Aștept citiri de la RFID... Apropie un card!")
 
 try:
-    while True:
-        # **Forțăm LED-urile să fie stinse înainte de a începe o nouă citire**
-        GPIO.output(LED1, GPIO.LOW)
-        GPIO.output(LED2, GPIO.LOW)
+    last_rfid = None  # Stochează ultima citire pentru a evita dublurile
 
+    while True:
         print("\n📌 Scanează un card...")
         rfid_code, _ = reader.read()
         rfid_code = str(rfid_code).strip()  # Convertim la string și eliminăm spațiile
-        
+
+        # **Verificăm dacă este aceeași citire repetată**
+        if rfid_code == last_rfid:
+            print("⚠️ Același card detectat, ignorăm citirea...")
+            time.sleep(1)
+            continue  # Trecem peste procesare
+
         print(f"🔍 Card citit: {rfid_code}")
 
         # Trimite POST către server
         send_rfid_to_server(rfid_code)
 
+        last_rfid = rfid_code  # Actualizăm ultima citire
+
         # Pauză pentru a evita citiri multiple la aceeași scanare
-        time.sleep(2)
+        time.sleep(1.5)
 
 except KeyboardInterrupt:
     print("\n❌ Oprire script RFID.")
