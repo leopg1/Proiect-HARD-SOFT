@@ -3,7 +3,7 @@ import time
 import RPi.GPIO as GPIO
 from mfrc522 import SimpleMFRC522
 
-# Configurare GPIO
+# Configurare GPIO pentru LED-uri
 LED1 = 17  # GPIO pentru LED1
 LED2 = 27  # GPIO pentru LED2
 
@@ -32,16 +32,16 @@ def send_rfid_to_server(rfid_code):
         if response.status_code == 200:
             print(f"✅ Răspuns API: {data}")
 
-            # Aprinde LED-ul corespunzător
+            # Asigurăm că doar un LED este aprins simultan
             if data.get("led_status") == "LED1":
                 GPIO.output(LED1, GPIO.HIGH)
-                GPIO.output(LED2, GPIO.LOW)
-                print("💡 LED1 APRINS!")
+                GPIO.output(LED2, GPIO.LOW)  # Stingem LED2
+                print("💡 LED1 APRINS! (LED2 STINS)")
 
             elif data.get("led_status") == "LED2":
-                GPIO.output(LED1, GPIO.LOW)
+                GPIO.output(LED1, GPIO.LOW)  # Stingem LED1
                 GPIO.output(LED2, GPIO.HIGH)
-                print("💡 LED2 APRINS!")
+                print("💡 LED2 APRINS! (LED1 STINS)")
 
             else:
                 GPIO.output(LED1, GPIO.LOW)
