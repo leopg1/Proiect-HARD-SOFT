@@ -49,8 +49,8 @@ with app.app_context():
     # Adăugăm RFID-urile predefinite pentru login și LED-uri
     predefined_tags = [
         {"rfid_code": "154410945857", "tag_type": "login"},  # RFID pentru conectare
-        {"rfid_code": "423423", "tag_type": "led"},  # RFID pentru LED1
-        {"rfid_code": "2312345", "tag_type": "led"}  # RFID pentru LED2
+        {"rfid_code": "977790505602", "tag_type": "led"},  # 🔄 Nou RFID pentru LED1
+        {"rfid_code": "223247207766", "tag_type": "led"}  # 🔄 Nou RFID pentru LED2
     ]
 
     for tag in predefined_tags:
@@ -83,8 +83,8 @@ def receive_rfid():
         if tag_entry.tag_type == "led":
             # Mapează RFID la LED-uri
             led_mapping = {
-                "423423": "LED1",
-                "2312345": "LED2"
+                "977790505602": "LED1",
+                "223247207766": "LED2"
             }
             led_status = led_mapping.get(rfid_code, "none")
 
