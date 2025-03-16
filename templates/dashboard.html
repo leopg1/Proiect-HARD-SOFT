@@ -5,25 +5,102 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard RFID</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .card-header {
+            font-weight: bold;
+        }
+        .led-status {
+            font-size: 1.5rem;
+            font-weight: bold;
+            padding: 10px;
+            border-radius: 10px;
+        }
+        .led-green {
+            background-color: #28a745;
+            color: white;
+        }
+        .led-blue {
+            background-color: #007bff;
+            color: white;
+        }
+        .led-gray {
+            background-color: #6c757d;
+            color: white;
+        }
+        table {
+            border-radius: 10px;
+            overflow: hidden;
+        }
+    </style>
 </head>
 <body>
-    <h2>Dashboard RFID</h2>
-    <h3 id="led_status">LED activ: Necunoscut</h3>
 
-    <h3>Istoric scanări RFID</h3>
-    <table border="1">
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>RFID Code</th>
-                <th>Număr Scanări</th>
-                <th>Timestamp</th>
-            </tr>
-        </thead>
-        <tbody id="history_table">
-            <!-- Datele istoricului RFID vor fi populate din WebSockets -->
-        </tbody>
-    </table>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">Dashboard RFID</a>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <!-- Status LED -->
+            <div class="col-md-6">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white text-center">
+                        Status LED
+                    </div>
+                    <div class="card-body text-center">
+                        <span id="led_status" class="led-status led-gray">LED activ: Necunoscut</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ultima scanare -->
+            <div class="col-md-6">
+                <div class="card shadow">
+                    <div class="card-header bg-secondary text-white text-center">
+                        Ultima Scanare
+                    </div>
+                    <div class="card-body text-center">
+                        <h4 id="last_scan">Nicio scanare recentă</h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Istoric RFID -->
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="card shadow">
+                    <div class="card-header bg-dark text-white">
+                        Istoric Scanări RFID
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-striped table-hover text-center">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>RFID Code</th>
+                                    <th>Număr Scanări</th>
+                                    <th>Timestamp</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history_table">
+                                <!-- Datele istoricului RFID vor fi populate din WebSockets -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script>
         var socket = io.connect("http://localhost:5000");
@@ -32,21 +109,37 @@
         socket.on("history_update", function(history) {
             var historyTable = document.getElementById("history_table");
             historyTable.innerHTML = ""; // Ștergem datele vechi
-            history.forEach(function(entry) {
+            history.forEach(function(entry, index) {
                 var row = "<tr><td>" + entry.id + "</td><td>" + entry.rfid_code + "</td><td>" +
                           entry.scan_count + "</td><td>" + entry.timestamp + "</td></tr>";
                 historyTable.innerHTML += row;
+
+                // Actualizăm ultima scanare
+                if (index === 0) {
+                    document.getElementById("last_scan").innerText = "RFID: " + entry.rfid_code + " la " + entry.timestamp;
+                }
             });
         });
 
         // Când primim actualizări despre LED-ul activ
         socket.on("led_status_update", function(data) {
-            document.getElementById("led_status").innerText = "LED activ: " + data.active_led;
+            var ledStatus = document.getElementById("led_status");
+            ledStatus.innerText = "LED activ: " + data.active_led;
+
+            // Schimbă culoarea LED-ului activ
+            if (data.active_led === "LED1") {
+                ledStatus.className = "led-status led-green";
+            } else if (data.active_led === "LED2") {
+                ledStatus.className = "led-status led-blue";
+            } else {
+                ledStatus.className = "led-status led-gray";
+            }
         });
 
         // Cerem istoric și status LED la încărcarea paginii
         socket.emit("request_history_update");
         socket.emit("request_led_status");
     </script>
+
 </body>
 </html>

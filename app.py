@@ -108,7 +108,7 @@ def receive_rfid():
             }
 
         elif tag_entry.tag_type == "login":
-            # Setăm sesiunea ca autentificată
+            # ✅ SALVĂM RFID-UL DE LOGIN ÎN ISTORIC
             session["logged_in"] = True
 
             # Trimitem un mesaj WebSocket pentru redirecționare
@@ -119,6 +119,7 @@ def receive_rfid():
                 "tag_type": "login",
                 "message": "Autentificare reușită"
             }
+
     else:
         # Dacă RFID-ul nu este cunoscut, îl salvăm în istoric
         response = {
@@ -127,18 +128,18 @@ def receive_rfid():
             "message": "Tag necunoscut"
         }
 
-    # Verificăm dacă RFID-ul există deja în istoricul scanărilor
+    # ✅ MODIFICĂM ACEST COD PENTRU A INCLUDE ȘI RFID-URILE DE LOGIN
     history_entry = RFIDHistory.query.filter_by(rfid_code=rfid_code).first()
 
     if history_entry:
-        history_entry.scan_count += 1  # Incrementăm numărul de scanări
+        history_entry.scan_count += 1  # ✅ Incrementăm numărul de scanări pentru TOATE RFID-urile
     else:
         history_entry = RFIDHistory(rfid_code=rfid_code, scan_count=1)
         db.session.add(history_entry)
 
     db.session.commit()
 
-    # Trimitem actualizare istoric prin WebSockets
+    # ✅ Trimitem actualizare istoric prin WebSockets
     history_entries = RFIDHistory.query.order_by(RFIDHistory.timestamp.desc()).all()
     history_data = [
         {
