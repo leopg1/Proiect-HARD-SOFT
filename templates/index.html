@@ -1,0 +1,23 @@
+<html>
+<body>
+    <h1>Dashboard RFID</h1>
+    <button onclick="getHistory()">Vezi Istoricul</button>
+    <ul id="history"></ul>
+
+    <script>
+        function getHistory() {
+            fetch("http://localhost:5000/history")
+                .then(response => response.json())
+                .then(data => {
+                    let list = document.getElementById("history");
+                    list.innerHTML = "";
+                    data.forEach(entry => {
+                        let item = document.createElement("li");
+                        item.textContent = entry.rfid_code;
+                        list.appendChild(item);
+                    });
+                });
+        }
+    </script>
+</body>
+</html>
