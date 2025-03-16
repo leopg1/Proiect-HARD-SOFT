@@ -4,7 +4,7 @@ import RPi.GPIO as GPIO
 from mfrc522 import SimpleMFRC522
 
 # Configurare GPIO pentru LED-uri
-LED1 = 17  # GPIO pentru LED1
+LED1 = 16  # GPIO pentru LED1
 LED2 = 27  # GPIO pentru LED2
 
 GPIO.setmode(GPIO.BCM)
