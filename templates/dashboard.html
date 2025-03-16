@@ -3,10 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard</title>
+    <title>Dashboard RFID</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.js"></script>
 </head>
 <body>
-    <h2>Bine ai venit pe Dashboard</h2>
-    <p>Aici vei putea vedea istoricul scanărilor și starea LED-urilor.</p>
+    <h2>Dashboard RFID</h2>
+    <h3 id="led_status">LED activ: Necunoscut</h3>
+
+    <h3>Istoric scanări RFID</h3>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>RFID Code</th>
+                <th>Număr Scanări</th>
+                <th>Timestamp</th>
+            </tr>
+        </thead>
+        <tbody id="history_table">
+            <!-- Datele istoricului RFID vor fi populate din WebSockets -->
+        </tbody>
+    </table>
+
+    <script>
+        var socket = io.connect("http://localhost:5000");
+
+        // Când primim actualizări pentru istoric
+        socket.on("history_update", function(history) {
+            var historyTable = document.getElementById("history_table");
+            historyTable.innerHTML = ""; // Ștergem datele vechi
+            history.forEach(function(entry) {
+                var row = "<tr><td>" + entry.id + "</td><td>" + entry.rfid_code + "</td><td>" +
+                          entry.scan_count + "</td><td>" + entry.timestamp + "</td></tr>";
+                historyTable.innerHTML += row;
+            });
+        });
+
+        // Când primim actualizări despre LED-ul activ
+        socket.on("led_status_update", function(data) {
+            document.getElementById("led_status").innerText = "LED activ: " + data.active_led;
+        });
+
+        // Cerem istoric și status LED la încărcarea paginii
+        socket.emit("request_history_update");
+        socket.emit("request_led_status");
+    </script>
 </body>
 </html>

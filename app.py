@@ -80,7 +80,6 @@ def receive_rfid():
     tag_entry = RFIDTags.query.filter_by(rfid_code=rfid_code).first()
 
     if tag_entry:
-        # Dacă este un tag cunoscut, verificăm tipul lui
         if tag_entry.tag_type == "led":
             # Mapează RFID la LED-uri
             led_mapping = {
@@ -89,10 +88,18 @@ def receive_rfid():
             }
             led_status = led_mapping.get(rfid_code, "none")
 
-            # Actualizăm LEDStatus în baza de date
+            # Dezactivăm LED-ul precedent înainte de a aprinde altul
             led_record = LEDStatus.query.first()
+            if led_record:
+                led_record.active_led = "none"
+                db.session.commit()
+
+            # Aprindem LED-ul corespunzător
             led_record.active_led = led_status
             db.session.commit()
+
+            # Trimitem update către WebSockets (pentru dashboard)
+            socketio.emit("led_status_update", {"active_led": led_status})
 
             response = {
                 "rfid_code": rfid_code,
@@ -101,13 +108,19 @@ def receive_rfid():
             }
 
         elif tag_entry.tag_type == "login":
+            # Setăm sesiunea ca autentificată
+            session["logged_in"] = True
+
+            # Trimitem un mesaj WebSocket pentru redirecționare
+            socketio.emit("redirect_to_dashboard", {"redirect": "/dashboard"})
+
             response = {
                 "rfid_code": rfid_code,
                 "tag_type": "login",
                 "message": "Autentificare reușită"
             }
     else:
-        # Dacă RFID-ul nu este în `RFIDTags`, nu aprinde nimic
+        # Dacă RFID-ul nu este cunoscut, îl salvăm în istoric
         response = {
             "rfid_code": rfid_code,
             "tag_type": "unknown",
@@ -125,7 +138,21 @@ def receive_rfid():
 
     db.session.commit()
 
+    # Trimitem actualizare istoric prin WebSockets
+    history_entries = RFIDHistory.query.order_by(RFIDHistory.timestamp.desc()).all()
+    history_data = [
+        {
+            "id": entry.id,
+            "rfid_code": entry.rfid_code,
+            "scan_count": entry.scan_count,
+            "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        for entry in history_entries
+    ]
+    socketio.emit("history_update", history_data)
+
     return jsonify(response), 200
+
 
 
 #Returnează istoricul RFID-urilor
@@ -170,12 +197,37 @@ def api_login():
     else:
         return jsonify({"error": "Tag RFID invalid!"}), 401
 
+#################################################
 # Pagină Dashboard (momentan doar afișare)
 @app.route("/dashboard", methods=["GET"])
 def dashboard():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
     return render_template("dashboard.html")
+
+@socketio.on("request_history_update")
+def send_history_update():
+    """Trimite istoricul actualizat către toți clienții conectați"""
+    history_entries = RFIDHistory.query.order_by(RFIDHistory.timestamp.desc()).all()
+    history_data = [
+        {
+            "id": entry.id,
+            "rfid_code": entry.rfid_code,
+            "scan_count": entry.scan_count,
+            "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        for entry in history_entries
+    ]
+    socketio.emit("history_update", history_data)
+
+@socketio.on("request_led_status")
+def send_led_status():
+    """Trimite starea LED-ului activ către toți clienții conectați"""
+    led_record = LEDStatus.query.first()
+    socketio.emit("led_status_update", {"active_led": led_record.active_led})
+
+##########################################
+
 
 @app.route("/scan_rfid", methods=["POST"])
 def scan_rfid():
