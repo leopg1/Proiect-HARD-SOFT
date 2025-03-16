@@ -1,6 +1,19 @@
 import requests
 import time
+import RPi.GPIO as GPIO
 from mfrc522 import SimpleMFRC522
+
+# Configurare GPIO
+LED1 = 17  # GPIO pentru LED1
+LED2 = 27  # GPIO pentru LED2
+
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(LED1, GPIO.OUT)
+GPIO.setup(LED2, GPIO.OUT)
+
+# Oprire LED-uri la pornire
+GPIO.output(LED1, GPIO.LOW)
+GPIO.output(LED2, GPIO.LOW)
 
 # Configurare cititor RFID
 reader = SimpleMFRC522()
@@ -15,9 +28,26 @@ def send_rfid_to_server(rfid_code):
     try:
         response = requests.post(API_URL, json=payload)
         data = response.json()
-        
+
         if response.status_code == 200:
             print(f"✅ Răspuns API: {data}")
+
+            # Aprinde LED-ul corespunzător
+            if data.get("led_status") == "LED1":
+                GPIO.output(LED1, GPIO.HIGH)
+                GPIO.output(LED2, GPIO.LOW)
+                print("💡 LED1 APRINS!")
+
+            elif data.get("led_status") == "LED2":
+                GPIO.output(LED1, GPIO.LOW)
+                GPIO.output(LED2, GPIO.HIGH)
+                print("💡 LED2 APRINS!")
+
+            else:
+                GPIO.output(LED1, GPIO.LOW)
+                GPIO.output(LED2, GPIO.LOW)
+                print("💡 LEDURILE STINSE!")
+
         else:
             print(f"⚠️ Eroare API: {data}")
 
@@ -44,4 +74,4 @@ try:
 except KeyboardInterrupt:
     print("\n❌ Oprire script RFID.")
 finally:
-    pass
+    GPIO.cleanup()  # Resetare GPIO la ieșirea din program
