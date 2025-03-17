@@ -15,7 +15,7 @@ GPIO.setup(LED2, GPIO.OUT, initial=GPIO.LOW)
 reader = SimpleMFRC522()
 
 # URL-ul API-ului
-API_URL = "http://192.168.101.164:5000/rfid"
+API_URL = "http://207.154.237.32:5000/rfid"
 
 def send_rfid_to_server(rfid_code):
     """Trimite un request POST cu RFID-ul citit"""
