@@ -12,29 +12,14 @@
         body {
             background-color: #f8f9fa;
         }
-        .card-header {
+        .welcome-message {
+            font-size: 1.8rem;
             font-weight: bold;
+            text-align: center;
+            padding: 10px;
+            margin-bottom: 10px;
+            color: #333;
         }
-        .card-header:before {
-            content: "";
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
-            background-size: 300% 300%;
-            animation: gradientBG 5s ease infinite;
-            z-index: -1; /* Fundalul să fie sub conținut */
-        }
-        
-        /* Animația gradientului */
-        @keyframes gradientBG {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-       
         .led-status {
             font-size: 1.5rem;
             font-weight: bold;
@@ -65,10 +50,16 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
             <a class="navbar-brand" href="#">Dashboard RFID</a>
+            <button class="btn btn-danger ms-auto" id="logoutBtn" onclick="fakeLogout()">Logout</button>
         </div>
     </nav>
-
+    
     <div class="container mt-4">
+        <!-- Welcome User -->
+        <div class="welcome-message" id="welcome_message">
+            Bine ai venit!</span>
+        </div>
+        
         <div class="row">
             <!-- Status LED -->
             <div class="col-md-6">
@@ -111,6 +102,7 @@
                                 <tr>
                                     <th>ID</th>
                                     <th>RFID Code</th>
+                                    <th>Utilizator</th>
                                     <th>Număr Scanări</th>
                                     <th>Timestamp</th>
                                 </tr>
@@ -126,15 +118,23 @@
     </div>
 
     <script>
-        var socket = io.connect("http://192.168.111.164:5000"); // Pune IP-ul serverului Flask
+        var socket = io.connect("http://192.168.101.164:5000"); // Pune IP-ul serverului Flask
 
         // Când primim actualizări pentru istoric
+        function fakeLogout() {
+            window.location.href = "/login"; // Redirecționează utilizatorul la pagina de login
+        }
+
+
         socket.on("history_update", function(history) {
             var historyTable = document.getElementById("history_table");
             historyTable.innerHTML = ""; // Ștergem datele vechi
+
             history.forEach(function(entry, index) {
+                var userName = entry.user_name ? entry.user_name : "Tag necunoscut"; // ✅ Afișează numele corect
+
                 var row = "<tr><td>" + entry.id + "</td><td>" + entry.rfid_code + "</td><td>" +
-                          entry.scan_count + "</td><td>" + entry.timestamp + "</td></tr>";
+                        userName + "</td><td>" + entry.scan_count + "</td><td>" + entry.timestamp + "</td></tr>";
                 historyTable.innerHTML += row;
 
                 // Actualizăm ultima scanare
@@ -143,6 +143,9 @@
                 }
             });
         });
+
+
+
 
         // Când primim actualizări despre LED-ul activ
         socket.on("led_status_update", function(data) {
@@ -158,21 +161,47 @@
                 ledStatus.className = "led-status led-gray";
             }
         });
+        // Când primim mesaj de la WebSocket despre user_name
+        socket.on("redirect_to_dashboard", function(data) {
+            if (data.user_name) {
+                document.getElementById("user_name").innerText = data.user_name;
+                localStorage.setItem("user_name", data.user_name); // ✅ Salvează numele utilizatorului local
+            }
+        });
+
+        document.addEventListener("DOMContentLoaded", function() {
+            var savedUser = localStorage.getItem("user_name");
+            if (savedUser) {
+                document.getElementById("user_name").innerText = savedUser;
+            }
+        });
 
         document.getElementById("clearHistoryBtn").addEventListener("click", function() {
-        if (confirm("Sigur vrei să ștergi istoricul scanărilor?")) {
-            fetch("/clear_history", {
-                method: "POST"
-            })
-            .then(response => response.json())
-            .then(data => {
-                alert(data.message); // Afișează un mesaj că istoricul a fost șters
-                document.getElementById("history_table").innerHTML = ""; // Golește tabelul din UI
-                document.getElementById("last_scan").innerText = "Nicio scanare recentă"; // Resetăm ultima scanare
-            })
-            .catch(error => console.error("Eroare la ștergerea istoricului:", error));
-        }
+            if (confirm("Sigur vrei să ștergi istoricul scanărilor?")) {
+                fetch("/clear_history", {
+                    method: "POST"
+                })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.message); // Afișează un mesaj că istoricul a fost șters
+                    document.getElementById("history_table").innerHTML = ""; // Golește tabelul din UI
+                    document.getElementById("last_scan").innerText = "Nicio scanare recentă"; // Resetăm ultima scanare
+                })
+                .catch(error => console.error("Eroare la ștergerea istoricului:", error));
+            }
         });
+
+        document.getElementById("logoutBtn").addEventListener("click", function() {
+            fetch("/logout", { method: "POST" })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.message);  // ✅ Afișează mesaj de logout reușit
+                    localStorage.removeItem("user_name"); // ✅ Șterge utilizatorul salvat în LocalStorage
+                    window.location.href = "/login";  // ✅ Redirecționează către pagina de login
+                })
+                .catch(error => console.error("Eroare la logout:", error));
+        });
+
 
         // Cerem istoric și status LED la încărcarea paginii
         socket.emit("request_history_update");

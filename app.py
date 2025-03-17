@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, session, redirect, url_for, render_template
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO
+from sqlalchemy import text
 import os
 
 app = Flask(__name__)
@@ -28,11 +29,13 @@ class RFIDHistory(db.Model):
     rfid_code = db.Column(db.String(50), nullable=False)
     timestamp = db.Column(db.DateTime, default=db.func.current_timestamp())  # Ora scanării
     scan_count = db.Column(db.Integer, nullable=False, default=1)
+    user_name = db.Column(db.String(50), nullable=True)  # ✅ ADĂUGAT user_name
 
 class RFIDTags(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     rfid_code = db.Column(db.String(50), unique=True, nullable=False)
     tag_type = db.Column(db.String(20), nullable=False)  # "login" sau "led"
+    user_name = db.Column(db.String(50), nullable=True)  # ✅ ADĂUGAT user_name
 
 
 class LEDStatus(db.Model):
@@ -46,20 +49,39 @@ class LEDStatus(db.Model):
 with app.app_context():
     db.create_all()
 
-    # Adăugăm RFID-urile predefinite pentru login și LED-uri
+    # ✅ Adăugăm manual coloana `user_name` în `rfid_tags` dacă nu există deja
+    try:
+        # Interogăm baza de date pentru a verifica dacă `user_name` există
+        existing_columns = db.session.execute(text("PRAGMA table_info(rfid_tags);")).fetchall()
+        column_names = [column[1] for column in existing_columns]
+
+        if "user_name" not in column_names:
+            db.session.execute(text("ALTER TABLE rfid_tags ADD COLUMN user_name VARCHAR(50) DEFAULT 'Unknown';"))
+            db.session.commit()
+            print("✅ Coloana `user_name` a fost adăugată cu succes!")
+        else:
+            print("ℹ️ Coloana `user_name` există deja. Nu a fost necesară nicio modificare.")
+
+    except Exception as e:
+        print(f"❌ Eroare la adăugarea coloanei user_name: {e}")
+
+    # ✅ Adăugăm RFID-urile predefinite pentru login și LED-uri
     predefined_tags = [
-        {"rfid_code": "154410945857", "tag_type": "login"},  # RFID pentru conectare
-        {"rfid_code": "977790505602", "tag_type": "led"},  # 🔄 Nou RFID pentru LED1
-        {"rfid_code": "223247207766", "tag_type": "led"}  # 🔄 Nou RFID pentru LED2
+        {"rfid_code": "154410945857", "tag_type": "login", "user_name": "Leonard Pădurean"},
+        {"rfid_code": "977790505602", "tag_type": "led", "user_name": None},
+        {"rfid_code": "223247207766", "tag_type": "led", "user_name": None}
     ]
 
     for tag in predefined_tags:
         existing_tag = RFIDTags.query.filter_by(rfid_code=tag["rfid_code"]).first()
         if not existing_tag:
-            db.session.add(RFIDTags(rfid_code=tag["rfid_code"], tag_type=tag["tag_type"]))
-
+            db.session.add(RFIDTags(rfid_code=tag["rfid_code"], tag_type=tag["tag_type"], user_name=tag["user_name"]))
+        else:
+            # ✅ Dacă RFID-ul există deja, dar nu are nume, actualizăm
+            if existing_tag.user_name is None:
+                existing_tag.user_name = tag["user_name"]
+    
     db.session.commit()
-
 
 #aceasta initializare asigura ca la inceput niciun LED nu este aprins
 
@@ -88,122 +110,124 @@ def receive_rfid():
             }
             led_status = led_mapping.get(rfid_code, "none")
 
-            # Dezactivăm LED-ul precedent înainte de a aprinde altul
+            # Verificăm dacă există deja un LED activ
             led_record = LEDStatus.query.first()
-            if led_record:
-                led_record.active_led = "none"
+            if not led_record:
+                led_record = LEDStatus(active_led="none")
+                db.session.add(led_record)
                 db.session.commit()
+
+            # Dezactivăm LED-ul precedent
+            led_record.active_led = "none"
+            db.session.commit()
 
             # Aprindem LED-ul corespunzător
             led_record.active_led = led_status
             db.session.commit()
 
-            # Trimitem update către WebSockets (pentru dashboard)
+            # ✅ Salvăm în istoricul scanărilor
+            history_entry = RFIDHistory.query.filter_by(rfid_code=rfid_code).first()
+            if history_entry:
+                history_entry.scan_count += 1  # ✅ Incrementăm numărul de scanări
+            else:
+                history_entry = RFIDHistory(rfid_code=rfid_code, scan_count=1)
+                db.session.add(history_entry)
+
+            db.session.commit()
+
+            # ✅ Trimitem update către WebSockets (pentru dashboard)
             socketio.emit("led_status_update", {"active_led": led_status})
 
-            response = {
+            # ✅ Trimitem actualizare istoric prin WebSockets
+            history_entries = RFIDHistory.query.order_by(RFIDHistory.timestamp.desc()).all()
+            history_data = [
+                {
+                    "id": entry.id,
+                    "rfid_code": entry.rfid_code,
+                    "scan_count": entry.scan_count,
+                    "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                }
+                for entry in history_entries
+            ]
+            socketio.emit("history_update", history_data)
+
+            return jsonify({
                 "rfid_code": rfid_code,
                 "tag_type": "led",
                 "led_status": led_status
-            }
+            }), 200
 
-        elif tag_entry.tag_type == "login":
-            # ✅ SALVĂM RFID-UL DE LOGIN ÎN ISTORIC
+        if tag_entry.tag_type == "login":
             session["logged_in"] = True
+            session["user_name"] = tag_entry.user_name  
 
-            # Trimitem un mesaj WebSocket pentru redirecționare
-            socketio.emit("redirect_to_dashboard", {"redirect": "/dashboard"})
+            # ✅ Salvăm în istoricul scanărilor și tag-urile de login
+            history_entry = RFIDHistory.query.filter_by(rfid_code=rfid_code).first()
+            if history_entry:
+                history_entry.scan_count += 1  # ✅ Incrementăm numărul de scanări
+            else:
+                history_entry = RFIDHistory(
+                    rfid_code=rfid_code,
+                    scan_count=1,
+                    user_name=tag_entry.user_name  # ✅ Salvăm numele utilizatorului
+                )
+                db.session.add(history_entry)
 
-            response = {
+            db.session.commit()
+        
+
+            # ✅ Trimitem update către WebSockets pentru dashboard cu user_name
+            history_entries = db.session.query(
+                RFIDHistory.id,
+                RFIDHistory.rfid_code,
+                RFIDHistory.scan_count,
+                RFIDHistory.timestamp,
+                RFIDTags.user_name
+            ).outerjoin(RFIDTags, RFIDHistory.rfid_code == RFIDTags.rfid_code) \
+            .order_by(RFIDHistory.timestamp.desc()).all()
+
+            history_data = [
+                {
+                    "id": entry.id,
+                    "rfid_code": entry.rfid_code,
+                    "scan_count": entry.scan_count,
+                    "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                    "user_name": entry.user_name if entry.user_name else "Tag necunoscut"
+                }
+                for entry in history_entries
+            ]
+            socketio.emit("history_update", history_data)
+
+            # ✅ Trimitem un mesaj WebSocket pentru redirecționare și afișare nume
+            socketio.emit("redirect_to_dashboard", {
+                "redirect": "/dashboard",
+                "user_name": tag_entry.user_name
+            })
+
+            return jsonify({
                 "rfid_code": rfid_code,
                 "tag_type": "login",
-                "message": "Autentificare reușită"
-            }
-
+                "message": f"Autentificare reușită! Welcome, {tag_entry.user_name}!"
+            }), 200
     else:
         # Dacă RFID-ul nu este cunoscut, îl salvăm în istoric
-        response = {
-            "rfid_code": rfid_code,
-            "tag_type": "unknown",
-            "message": "Tag necunoscut"
-        }
-
-    # ✅ MODIFICĂM ACEST COD PENTRU A INCLUDE ȘI RFID-URILE DE LOGIN
-    history_entry = RFIDHistory.query.filter_by(rfid_code=rfid_code).first()
-
-    if history_entry:
-        history_entry.scan_count += 1  # ✅ Incrementăm numărul de scanări pentru TOATE RFID-urile
-    else:
-        history_entry = RFIDHistory(rfid_code=rfid_code, scan_count=1)
-        db.session.add(history_entry)
-
-    db.session.commit()
-
-    # ✅ Trimitem actualizare istoric prin WebSockets
-    history_entries = RFIDHistory.query.order_by(RFIDHistory.timestamp.desc()).all()
-    history_data = [
-        {
-            "id": entry.id,
-            "rfid_code": entry.rfid_code,
-            "scan_count": entry.scan_count,
-            "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        for entry in history_entries
-    ]
-    socketio.emit("history_update", history_data)
-
-    return jsonify(response), 200
-
-
-
-#Returnează istoricul RFID-urilor
-@app.route("/history", methods=["GET"])
-def get_history():
-    entries = RFIDHistory.query.order_by(RFIDHistory.timestamp.desc()).all()
-    history = [
-        {
-            "id": entry.id,
-            "rfid_code": entry.rfid_code,
-            "scan_count": entry.scan_count,
-            "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        for entry in entries
-    ]
-
-    return jsonify(history), 200
-
-#returnare led aprins
-@app.route("/led_status", methods=["GET"])
-def get_led_status():
-    led_record = LEDStatus.query.first()
-    return jsonify({"active_led": led_record.active_led}), 200
-
-@app.route("/login", methods=["GET"])
-def login():
-    return render_template("login.html")
-
-@app.route("/api/login", methods=["POST"])
-def api_login():
-    data = request.get_json()
-    rfid_code = data.get("rfid_code")
-
-    # Verifică dacă RFID-ul este un tag de login
-    tag = RFIDTags.query.filter_by(rfid_code=rfid_code, tag_type="login").first()
-
-    if tag:
-        session["logged_in"] = True
-
-        # ✅ Salvăm în istoricul scanărilor și tag-urile de login
         history_entry = RFIDHistory.query.filter_by(rfid_code=rfid_code).first()
         if history_entry:
             history_entry.scan_count += 1  # ✅ Incrementăm numărul de scanări
         else:
-            history_entry = RFIDHistory(rfid_code=rfid_code, scan_count=1)
+            history_entry = RFIDHistory(
+                rfid_code=rfid_code,
+                scan_count=1
+            )
             db.session.add(history_entry)
 
+        # ✅ Salvăm `user_name` în istoric
+        if tag_entry:
+            history_entry.user_name = tag_entry.user_name if tag_entry.user_name else "Tag necunoscut"
+        else:
+            history_entry.user_name = "Tag necunoscut"  # ✅ Dacă nu există tag_entry, setăm direct "Tag necunoscut"
         db.session.commit()
-
-        # ✅ Trimitem update către WebSockets pentru dashboard
+        # ✅ Trimitem actualizare istoric prin WebSockets
         history_entries = RFIDHistory.query.order_by(RFIDHistory.timestamp.desc()).all()
         history_data = [
             {
@@ -216,12 +240,108 @@ def api_login():
         ]
         socketio.emit("history_update", history_data)
 
-        # ✅ Trimite un eveniment WebSocket pentru redirecționare
-        socketio.emit("redirect_to_dashboard", {"redirect": "/dashboard"})
+        return jsonify({
+            "rfid_code": rfid_code,
+            "tag_type": "unknown",
+            "message": "Tag necunoscut"
+        }), 400
 
-        return jsonify({"message": "Autentificare reușită!", "redirect": "/dashboard"}), 200
+
+#Returnează istoricul RFID-urilor
+@app.route("/history", methods=["GET"])
+def get_history():
+    # Folosim un JOIN pentru a obține și numele utilizatorului asociat fiecărui RFID
+    history_entries = db.session.query(
+        RFIDHistory.id,
+        RFIDHistory.rfid_code,
+        RFIDHistory.scan_count,
+        RFIDHistory.timestamp,
+        RFIDTags.user_name
+    ).outerjoin(RFIDTags, RFIDHistory.rfid_code == RFIDTags.rfid_code) \
+    .order_by(RFIDHistory.timestamp.desc()).all()
+
+    history_data = [
+        {
+            "id": entry.id,
+            "rfid_code": entry.rfid_code,
+            "scan_count": entry.scan_count,
+            "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "user_name": entry.user_name if entry.user_name else "Tag necunoscut"
+        }
+        for entry in history_entries
+    ]
+
+    return jsonify(history_data), 200
+
+#returnare led aprins
+@app.route("/led_status", methods=["GET"])
+def get_led_status():
+    led_record = LEDStatus.query.first()
+    return jsonify({"active_led": led_record.active_led}), 200
+
+@app.route("/login", methods=["GET"])
+def login():
+    return render_template("login.html")
+
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json()
+    rfid_code = data.get("rfid_code")
+
+    # Verifică dacă RFID-ul este un tag de login
+    tag = RFIDTags.query.filter_by(rfid_code=rfid_code, tag_type="login").first()
+
+    if tag:
+        session["logged_in"] = True
+        session["user_name"] = tag.user_name  # ✅ Stocăm numele utilizatorului în sesiune
+
+        # ✅ Salvăm în istoricul scanărilor și tag-urile de login
+        history_entry = RFIDHistory.query.filter_by(rfid_code=rfid_code).first()
+        if history_entry:
+            history_entry.scan_count += 1  # ✅ Incrementăm numărul de scanări
+        else:
+            history_entry = RFIDHistory(rfid_code=rfid_code, scan_count=1)
+            db.session.add(history_entry)
+
+        db.session.commit()
+
+        # ✅ Trimitem update către WebSockets pentru dashboard
+        history_entries = db.session.query(
+            RFIDHistory.id,
+            RFIDHistory.rfid_code,
+            RFIDHistory.scan_count,
+            RFIDHistory.timestamp,
+            RFIDTags.user_name
+        ).outerjoin(RFIDTags, RFIDHistory.rfid_code == RFIDTags.rfid_code) \
+        .order_by(RFIDHistory.timestamp.desc()).all()
+
+        history_data = [
+            {
+                "id": entry.id,
+                "rfid_code": entry.rfid_code,
+                "scan_count": entry.scan_count,
+                "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "user_name": entry.user_name if entry.user_name else "Tag necunoscut"
+            }
+            for entry in history_entries
+        ]
+        socketio.emit("history_update", history_data)
+
+        # ✅ Trimite un eveniment WebSocket pentru redirecționare și afișare nume
+        socketio.emit("redirect_to_dashboard", {
+            "redirect": "/dashboard",
+            "user_name": tag.user_name  # ✅ Trimite numele utilizatorului în WebSocket
+        })
+
+        return jsonify({
+            "message": f"Autentificare reușită! Welcome, {tag.user_name}!",
+            "redirect": "/dashboard",
+            "user_name": tag.user_name
+        }), 200
     else:
         return jsonify({"error": "Tag RFID invalid!"}), 401
+
 
 #################################################
 # Pagină Dashboard (momentan doar afișare)
@@ -229,28 +349,39 @@ def api_login():
 def dashboard():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
-    return render_template("dashboard.html")
+    
+    user_name = session.get("user_name", "User")  # ✅ Preluăm numele utilizatorului
+    return render_template("dashboard.html", user_name=user_name)
 
 @socketio.on("request_history_update")
 def send_history_update():
-    """Trimite istoricul actualizat către toți clienții conectați"""
-    history_entries = RFIDHistory.query.order_by(RFIDHistory.timestamp.desc()).all()
+    history_entries = db.session.query(
+        RFIDHistory.id,
+        RFIDHistory.rfid_code,
+        RFIDHistory.scan_count,
+        RFIDHistory.timestamp,
+        RFIDHistory.user_name  # ✅ Folosim user_name direct din RFIDHistory
+    ).order_by(RFIDHistory.timestamp.desc()).all()
+
     history_data = [
         {
             "id": entry.id,
             "rfid_code": entry.rfid_code,
             "scan_count": entry.scan_count,
-            "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "user_name": entry.user_name if entry.user_name else "Tag necunoscut"  # ✅ Afișează "Tag necunoscut" dacă user_name nu există
         }
         for entry in history_entries
     ]
+
     socketio.emit("history_update", history_data)
 
 @socketio.on("request_led_status")
 def send_led_status():
     """Trimite starea LED-ului activ către toți clienții conectați"""
     led_record = LEDStatus.query.first()
-    socketio.emit("led_status_update", {"active_led": led_record.active_led})
+    if led_record:
+        socketio.emit("led_status_update", {"active_led": led_record.active_led})
 
 ##########################################
 
@@ -260,21 +391,52 @@ def scan_rfid():
     data = request.get_json()
     rfid_code = data.get("rfid_code")
 
-    # Verifică dacă tag-ul este înregistrat în baza de date
+    if not rfid_code:
+        return jsonify({"error": "Lipsește RFID code"}), 400
+
+    # Verificăm dacă tag-ul există în baza de date
     tag_entry = RFIDTags.query.filter_by(rfid_code=rfid_code).first()
 
-    if not tag_entry:
+    # ✅ Salvăm RFID-ul în istoric înainte de orice altă acțiune
+    history_entry = RFIDHistory.query.filter_by(rfid_code=rfid_code).first()
+    if history_entry:
+        history_entry.scan_count += 1  # ✅ Incrementăm numărul de scanări
+    else:
+        history_entry = RFIDHistory(rfid_code=rfid_code, scan_count=1)
+        db.session.add(history_entry)
+
+    db.session.commit()
+
+    # ✅ Emitere WebSocket pentru actualizarea istoricului
+    history_entries = db.session.query(
+        RFIDHistory.id,
+        RFIDHistory.rfid_code,
+        RFIDHistory.scan_count,
+        RFIDHistory.timestamp,
+        RFIDTags.user_name
+    ).outerjoin(RFIDTags, RFIDHistory.rfid_code == RFIDTags.rfid_code) \
+    .order_by(RFIDHistory.timestamp.desc()).all()
+
+    history_data = [
+        {
+            "id": entry.id,
+            "rfid_code": entry.rfid_code,
+            "scan_count": entry.scan_count,
+            "timestamp": entry.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "user_name": entry.user_name if entry.user_name else "Tag necunoscut"
+        }
+        for entry in history_entries
+    ]
+    socketio.emit("history_update", history_data)
+
+    # ✅ După salvare, redirecționăm către endpoint-ul corect
+    if tag_entry:
+        if tag_entry.tag_type == "login":
+            return redirect(url_for("api_login"), code=307)  # Trimite același request către /api/login
+        elif tag_entry.tag_type == "led":
+            return redirect(url_for("receive_rfid"), code=307)  # Trimite același request către /rfid
+    else:
         return jsonify({"error": "Tag RFID necunoscut"}), 400
-
-    # Dacă este un tag de login, îl trimitem către /api/login
-    if tag_entry.tag_type == "login":
-        return redirect(url_for("api_login"), code=307)  # Trimite același request către /api/login
-
-    # Dacă este un tag de LED, îl trimitem către /rfid
-    elif tag_entry.tag_type == "led":
-        return redirect(url_for("receive_rfid"), code=307)  # Trimite același request către /rfid
-
-    return jsonify({"error": "Tip RFID necunoscut"}), 400
 
 
 @app.route("/clear_history", methods=["POST"])
@@ -294,3 +456,4 @@ def clear_history():
 
 if __name__ == "__main__":
     socketio.run(app, debug=True, host="0.0.0.0", port=5000, allow_unsafe_werkzeug=True)
+ 
