@@ -7,6 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
 
     <style>
         body {
@@ -42,6 +43,9 @@
             border-radius: 10px;
             overflow: hidden;
         }
+        .pulse:hover {
+            animation: pulse 1s infinite;
+        }    
     </style>
 </head>
 <body>
@@ -50,8 +54,10 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
             <a class="navbar-brand" href="#">Dashboard RFID</a>
+            
             <button class="btn btn-danger ms-auto" id="logoutBtn" onclick="fakeLogout()">Logout</button>
         </div>
+        
     </nav>
     
     <div class="container mt-4">
@@ -65,10 +71,10 @@
             <div class="col-md-6">
                 <div class="card shadow">
                     <div class="card-header bg-primary text-white text-center">
-                        Status LED
+                        💡Status LED
                     </div>
                     <div class="card-body text-center">
-                        <span id="led_status" class="led-status led-gray">LED activ: Necunoscut</span>
+                        <span id="led_status" class="led-status led-gray animate__animated animate__flash">LED activ: Necunoscut</span>
                     </div>
                 </div>
             </div>
@@ -77,19 +83,37 @@
             <div class="col-md-6">
                 <div class="card shadow">
                     <div class="card-header bg-secondary text-white text-center">
-                        Ultima Scanare
+                        🖥️ Status Raspberry Pi
                     </div>
                     <div class="card-body text-center">
-                        <h4 id="last_scan">Nicio scanare recentă</h4>
+                        <h4 id="last_scan">RPY4 B+ Conectat</h4>
                     </div>
                 </div>
             </div>
         </div>
 
+        <div class="row mt-4">
+            <div class="col-md-6 mx-auto">
+                <div class="card shadow animate__animated animate__fadeIn" id="last_card">
+                    <div class="card-header bg-primary text-white text-center">
+                        👤 Ultimul Card Scanat
+                    </div>
+                    <div class="card-body text-center">
+                        <h5 id="last_card_rfid">RFID: -</h5>
+                        <h5 id="last_card_user">Utilizator: -</h5>
+                        <h6 id="last_card_time" class="text-muted">Ora scanării: -</h6>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <!-- Istoric RFID -->
-        <div class="text-center mt-3">
-            <button id="clearHistoryBtn" class="btn btn-danger">Șterge Istoricul</button>
-        </div>        
+        <div class="text-center mt-3 d-flex justify-content-center align-items-center">
+            <input type="text" id="searchInput" class="form-control me-2" style="max-width: 300px;" placeholder="Caută RFID...">
+            <button id="clearHistoryBtn" class="btn btn-danger me-2">🗑 Șterge Istoricul</button>
+            <button id="exportCsvBtn" class="btn btn-success">📂 Exportă CSV</button>
+        </div>
+                    
         <div class="row mt-4">
             <div class="col-md-12">
                 <div class="card shadow">
@@ -103,11 +127,11 @@
                                     <th>ID</th>
                                     <th>RFID Code</th>
                                     <th>Utilizator</th>
-                                    <th>Număr Scanări</th>
+                                    <th>Număr Scanări/Incercări</th>
                                     <th>Timestamp</th>
                                 </tr>
                             </thead>
-                            <tbody id="history_table">
+                            <tbody id="history_table" class="animate__animated animate__fadeInUp">
                                 <!-- Datele istoricului RFID vor fi populate din WebSockets -->
                             </tbody>
                         </table>
@@ -116,9 +140,11 @@
             </div>
         </div>
     </div>
-
+    <footer class="bg-dark text-white text-center py-3 mt-4">
+        Dezvoltat de MMS - Hard and Soft
+    </footer>
     <script>
-        var socket = io.connect("http://207.154.237.32:5000"); // Pune IP-ul serverului Flask
+        var socket = io.connect("http://192.168.196.164:5000"); // Pune IP-ul serverului Flask
 
         // Când primim actualizări pentru istoric
         function fakeLogout() {
@@ -138,9 +164,6 @@
                 historyTable.innerHTML += row;
 
                 // Actualizăm ultima scanare
-                if (index === 0) {
-                    document.getElementById("last_scan").innerText = "RFID: " + entry.rfid_code + " la " + entry.timestamp;
-                }
             });
         });
 
@@ -201,7 +224,60 @@
                 })
                 .catch(error => console.error("Eroare la logout:", error));
         });
+        document.getElementById("searchInput").addEventListener("keyup", function() {
+            let searchValue = this.value.toLowerCase();
+            let rows = document.querySelectorAll("#history_table tr");
 
+            rows.forEach(row => {
+                let rfidCode = row.cells[1]?.textContent.toLowerCase(); // Celula RFID Code
+                let userName = row.cells[2]?.textContent.toLowerCase(); // Celula Utilizator
+
+                if (rfidCode.includes(searchValue) || userName.includes(searchValue)) {
+                    row.style.display = "";
+                } else {
+                    row.style.display = "none";
+                }
+            });
+        });
+
+        socket.on("history_update", function(history) {
+            var historyTable = document.getElementById("history_table");
+            historyTable.innerHTML = ""; // Ștergem datele vechi
+
+            history.forEach(function(entry, index) {
+                var userName = entry.user_name ? entry.user_name : "Tag necunoscut"; // ✅ Afișează numele corect
+
+                var row = "<tr><td>" + entry.id + "</td><td>" + entry.rfid_code + "</td><td>" +
+                        userName + "</td><td>" + entry.scan_count + "</td><td>" + entry.timestamp + "</td></tr>";
+                historyTable.innerHTML += row;
+
+                // ✅ Actualizăm și secțiunea Ultimul Card Scanat Vizual
+                if (index === 0) {
+                    document.getElementById("last_scan").innerText = "RFID: " + entry.rfid_code + " la " + entry.timestamp;
+                    document.getElementById("last_card_rfid").innerText = "RFID: " + entry.rfid_code;
+                    document.getElementById("last_card_user").innerText = "Utilizator: " + userName;
+                    document.getElementById("last_card_time").innerText = "Ora scanării: " + entry.timestamp;
+                }
+            });
+        });
+        document.getElementById("exportCsvBtn").addEventListener("click", function() {
+            let rows = document.querySelectorAll("#history_table tr");
+            let csvContent = "data:text/csv;charset=utf-8,ID,RFID Code,Utilizator,Număr Scanări,Timestamp\n";
+
+            rows.forEach(row => {
+                let columns = row.querySelectorAll("td");
+                let rowData = [];
+                columns.forEach(column => rowData.push(column.textContent));
+                csvContent += rowData.join(",") + "\n";
+            });
+
+            let encodedUri = encodeURI(csvContent);
+            let link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "istoric_rfid.csv");
+            document.body.appendChild(link);
+            link.click();
+        });
 
         // Cerem istoric și status LED la încărcarea paginii
         socket.emit("request_history_update");

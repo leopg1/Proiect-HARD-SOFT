@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control Motoare</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .control-container {
+            max-width: 500px;
+            margin: 30px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
+            text-align: center;
+        }
+        .btn-control {
+            width: 100%;
+            margin-bottom: 5px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">Control Motoare</a>
+            <a href="index.html" class="btn btn-outline-light">🏠 Înapoi la Home</a>
+        </div>
+    </nav>
+
+    <!-- Control Motoare -->
+    <div class="container">
+    <div class="card shadow mt-3">
+        <div class="card-header bg-dark text-white text-center">
+            🚗 Control General Motoare
+        </div>
+        <div class="card-body text-center">
+            <button class="btn btn-success m-2" onclick="setBothMotors('inainte')">Mers Înainte</button>
+            <button class="btn btn-warning m-2" onclick="setBothMotors('inapoi')">Mers Înapoi</button>
+            <button class="btn btn-danger m-2" onclick="setBothMotors('oprit')">Oprire</button>
+        </div>
+    </div>
+    </div>
+    
+    <div class="container">
+        <div class="control-container">
+            <h2 class="mb-4">Control Individual Motoare</h2>
+            
+            <h4>Motor 1</h4>
+            <button class="btn btn-success btn-control" onclick="setMotorStatus('motor1', 'inainte')">⬆️ Înainte</button>
+            <button class="btn btn-danger btn-control" onclick="setMotorStatus('motor1', 'inapoi')">⬇️ Înapoi</button>
+            <button class="btn btn-secondary btn-control" onclick="setMotorStatus('motor1', 'oprit')">⏹️ Oprit</button>
+
+            <h4 class="mt-4">Motor 2</h4>
+            <button class="btn btn-success btn-control" onclick="setMotorStatus('motor2', 'inainte')">⬆️ Înainte</button>
+            <button class="btn btn-danger btn-control" onclick="setMotorStatus('motor2', 'inapoi')">⬇️ Înapoi</button>
+            <button class="btn btn-secondary btn-control" onclick="setMotorStatus('motor2', 'oprit')">⏹️ Oprit</button>
+
+            <h2 class="mt-4">Control Duty Cycle</h2>
+
+            <h5>Motor 1 Duty Cycle: <span id="duty_motor1">0</span>%</h5>
+            <input type="range" id="slider_motor1" min="0" max="100" step="5" value="0" 
+                oninput="updateDutyCycle('motor1', this.value)">
+
+            <h5 class="mt-4">Motor 2 Duty Cycle: <span id="duty_motor2">0</span>%</h5>
+            <input type="range" id="slider_motor2" min="0" max="100" step="5" value="0"
+                oninput="updateDutyCycle('motor2', this.value)">
+
+            <h5 class="mt-4">Stare curentă:</h5>
+            <p id="motor_status" class="fw-bold">Se încarcă...</p>
+            <p id="duty_status" class="fw-bold">Duty Cycle: Se încarcă...</p>
+        </div>
+    </div>
+    <script>
+        var socket = io.connect("http://192.168.196.164:5000"); // Pune IP-ul serverului Flask
+
+        function setMotorStatus(motor, status) {
+            fetch("/set_motors", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ [motor]: status })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("📢 Răspuns API:", data);
+                // ✅ Emitere WebSocket manual după update
+                socket.emit("request_motor_status"); 
+            })
+            .catch(error => console.error("Eroare la setarea motorului:", error));
+        }
+
+        function updateMotorStatus() {
+            fetch("/motor_status")
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById("motor_status").innerText = 
+                        `Motor 1: ${data.motor1} | Motor 2: ${data.motor2}`;
+                })
+                .catch(error => console.error("Eroare la obținerea statusului motorului:", error));
+        }
+
+        function setBothMotors(status) {
+            fetch("/set_motors", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    "motor1": status,
+                    "motor2": status
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("📢 Răspuns API:", data);
+                if (data.error) {
+                    alert("Eroare: " + data.error);
+                } else {
+                    socket.emit("request_motor_status"); // ✅ Solicităm update prin WebSocket
+                }
+            })
+            .catch(error => console.error("Eroare la setarea ambelor motoare:", error));
+        }
+
+        function updateDutyCycle(motor, value) {
+            document.getElementById(`duty_${motor}`).innerText = value;
+            fetch("/set_duty_cycle", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ [motor]: parseInt(value) })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("📢 Duty Cycle Actualizat:", data);
+                socket.emit("request_duty_cycle");
+            })
+            .catch(error => console.error("Eroare la actualizarea duty cycle:", error));
+        }
+
+        // ✅ WebSockets pentru update Duty Cycle
+        socket.on("duty_cycle_update", function(data) {
+            document.getElementById("duty_motor1").innerText = data.motor1;
+            document.getElementById("slider_motor1").value = data.motor1;
+            document.getElementById("duty_motor2").innerText = data.motor2;
+            document.getElementById("slider_motor2").value = data.motor2;
+
+            document.getElementById("duty_status").innerText = 
+                `Duty Cycle Motor 1: ${data.motor1}% | Motor 2: ${data.motor2}%`;
+        });
+
+
+
+        // Ascultă actualizări prin WebSocket
+        socket.on("motor_status_update", function(data) {
+            document.getElementById("motor_status").innerText = 
+                `Motor 1: ${data.motor1} | Motor 2: ${data.motor2}`;
+        });
+
+        // ✅ La încărcarea paginii, cere statusul
+        socket.emit("request_motor_status");
+        socket.emit("request_duty_cycle");
+
+    </script>
+
+</body>
+</html>
